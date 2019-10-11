@@ -19,6 +19,7 @@ import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import jenkins.tasks.SimpleBuildStep;
 import net.sf.json.JSONObject;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.workflow.support.steps.build.RunWrapper;
@@ -33,6 +34,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuildStep {
     private static final String LOG_PREFIX = "[FIT2CLOUD 代码部署 V2.0]";
@@ -41,8 +43,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     private final String f2cSecretKey;
     private final String workspaceId;
     private final String applicationId;
-    private final String applicationSettingId;
-    private final String applicationRepositoryId;
+    private final String applicationRepositoryId = null;
     private final String clusterId;
     private final String clusterRoleId;
     private final String cloudServerId;
@@ -50,6 +51,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     private final String deploymentLevel;
     private final Integer backupQuantity;
     private final String applicationVersionName;
+    private final String applicationSettingId = null;
     private final boolean autoDeploy;
     private final String includes;
     private final String excludes;
@@ -84,11 +86,9 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                                        String f2cAccessKey,
                                        String f2cSecretKey,
                                        String applicationId,
-                                       String applicationRepositoryId,
                                        String clusterId,
                                        String clusterRoleId,
                                        String workspaceId,
-                                       String applicationSettingId,
                                        String cloudServerId,
                                        String deployPolicy,
                                        String deploymentLevel,
@@ -123,9 +123,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         this.clusterId = clusterId;
         this.clusterRoleId = clusterRoleId;
         this.workspaceId = workspaceId;
-        this.applicationSettingId = applicationSettingId;
         this.cloudServerId = cloudServerId;
-        this.applicationRepositoryId = applicationRepositoryId;
         this.applicationVersionName = applicationVersionName;
         this.deployPolicy = deployPolicy;
         this.deploymentLevel = deploymentLevel;
@@ -156,7 +154,10 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     @Override
     public void perform(@Nonnull Run<?, ?> run, @Nonnull FilePath filePath, @Nonnull Launcher launcher, @Nonnull TaskListener taskListener) throws InterruptedException, IOException {
         RunWrapper wrapper = new RunWrapper(run, true);
-        execute(run, taskListener, wrapper.getProjectName(), filePath);
+        boolean executeRes = execute(run, taskListener, wrapper.getProjectName(), filePath);
+        if(!executeRes){
+            throw new InterruptedException("Interrupt to build deploy failure！");
+        }
     }
 
     @Override
@@ -167,7 +168,11 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     private boolean execute(Run<?, ?> build, TaskListener listener, String projectName, FilePath workspace) {
         this.logger = listener.getLogger();
         int builtNumber = build.getNumber();
-
+        String workspaceId = null;
+        String applicationId = null;
+        String clusterId = null;
+        String cloudServerId =null;
+        String clusterRoleId = null;
         final boolean buildFailed = build.getResult() == Result.FAILURE;
         if (buildFailed) {
             log("Skipping CodeDeploy publisher as build failed");
@@ -180,22 +185,40 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         try {
             boolean findWorkspace = false;
             List<Workspace> workspaces = fit2cloudClient.getWorkspace();
+            String tmpWorkspaceId = this.workspaceId;
             for (Workspace wk : workspaces) {
-                if (wk.getId().equals(this.workspaceId)) {
+                if (wk.getId().equals(this.workspaceId) ) {
                     findWorkspace = true;
+                    tmpWorkspaceId = wk.getId();
+                }
+                if(StringUtils.isNotBlank(wk.getName())){
+                    if(wk.getName().equals(this.workspaceId)){
+                        findWorkspace = true;
+                        tmpWorkspaceId = wk.getId();
+                    }
                 }
             }
+            workspaceId = tmpWorkspaceId;
             if (!findWorkspace) {
                 throw new CodeDeployException("工作空间不存在！");
             }
 
             boolean findApplication = false;
-            List<ApplicationDTO> applications = fit2cloudClient.getApplications(this.workspaceId);
+            String tmpApplicationId = this.applicationId;
+            List<ApplicationDTO> applications = fit2cloudClient.getApplications(workspaceId);
             for (ApplicationDTO applicationDTO : applications) {
-                if (applicationDTO.getId().equals(this.applicationId)) {
+                if (applicationDTO.getId().equals(this.applicationId) ) {
                     findApplication = true;
+                    tmpApplicationId = applicationDTO.getId();
+                }
+                if(StringUtils.isNotBlank(applicationDTO.getName())){
+                    if(applicationDTO.getName().equals(this.applicationId)){
+                        findApplication = true;
+                        tmpApplicationId = applicationDTO.getId();
+                    }
                 }
             }
+            applicationId =  tmpApplicationId;
             if (!findApplication) {
                 throw new CodeDeployException("应用不存在！");
             }
@@ -203,44 +226,70 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
 
             if (autoDeploy) {
                 boolean findCluster = false;
-                List<ClusterDTO> clusters = fit2cloudClient.getClusters(this.workspaceId);
-                for (ClusterDTO clusterDTO : clusters) {
-                    if (clusterDTO.getId().equals(this.clusterId)) {
-                        findCluster = true;
+                List<ClusterDTO> clusters  = fit2cloudClient.getClusters(workspaceId);
+                String tmpClusterId = this.clusterId;
+                if(CollectionUtils.isNotEmpty(clusters)){
+                    for (ClusterDTO clusterDTO : clusters) {
+                        if (clusterDTO.getId().equals(this.clusterId)) {
+                            findCluster = true;
+                            tmpClusterId= clusterDTO.getId();
+                        }
+                        if(StringUtils.isNotBlank(clusterDTO.getName())){
+                            if(clusterDTO.getName().equals(this.clusterId)){
+                                findCluster = true;
+                                tmpClusterId= clusterDTO.getId();
+                            }
+                        }
                     }
                 }
                 if (!findCluster) {
                     throw new CodeDeployException("集群不存在! ");
                 }
+                clusterId =  tmpClusterId;
 
-
-                List<ClusterRole> clusterRoles = fit2cloudClient.getClusterRoles(this.workspaceId, this.clusterId);
-
+                List<ClusterRole> clusterRoles = fit2cloudClient.getClusterRoles(workspaceId, clusterId);
                 if (clusterRoles.size() == 0) {
                     throw new CodeDeployException("此集群下主机组为空！");
                 }
 
-                if (!clusterRoleId.equalsIgnoreCase("ALL")) {
+                String tmpClusterRoleId=this.clusterRoleId;
+                if (!"ALL".equalsIgnoreCase(this.clusterRoleId)) {
                     boolean findClusterRole = false;
                     for (ClusterRole clusterRole : clusterRoles) {
                         if (clusterRole.getId().equals(this.clusterRoleId)) {
                             findClusterRole = true;
+                            tmpClusterRoleId= clusterRole.getId();
+                        }
+                        if(StringUtils.isNotBlank(clusterRole.getName())){
+                            if(clusterRole.getName().equals(this.clusterRoleId)){
+                                findClusterRole = true;
+                                tmpClusterRoleId= clusterRole.getId();
+                            }
                         }
                     }
                     if (!findClusterRole) {
                         throw new CodeDeployException("主机组不存在! ");
                     }
                 }
+                clusterRoleId =tmpClusterRoleId;
 
-                List<CloudServer> cloudServers = fit2cloudClient.getCloudServers(this.workspaceId, this.clusterRoleId, this.clusterId);
+                List<CloudServer> cloudServers = fit2cloudClient.getCloudServers(workspaceId, clusterRoleId, clusterId);
                 if (cloudServers.size() == 0) {
                     throw new CodeDeployException("此主机组下主机为空！");
                 }
-                if (!cloudServerId.equalsIgnoreCase("ALL")) {
+                String tmpCloudServerId=this.cloudServerId;
+                if (!"ALL".equalsIgnoreCase(this.cloudServerId)) {
                     boolean findCLoudServer = false;
                     for (CloudServer cloudServer : cloudServers) {
                         if (cloudServer.getId().equals(this.cloudServerId)) {
                             findCLoudServer = true;
+                            tmpCloudServerId = cloudServer.getId();
+                        }
+                        if(StringUtils.isNotBlank(cloudServer.getInstanceName())){
+                            if(cloudServer.getInstanceName().equals(this.cloudServerId)){
+                                findCLoudServer = true;
+                                tmpCloudServerId = cloudServer.getId();
+                            }
                         }
                     }
                     if (!findCLoudServer) {
@@ -251,11 +300,12 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                 if (StringUtils.isBlank(deploymentLevel)) {
                     log("部署级别不可为空");
                 }
+                cloudServerId =  tmpCloudServerId;
 
             }
         } catch (Exception e) {
-            log(e.getMessage());
-            return false;
+            log("存在参数为空或获取工作空间|集群|应用异常："+e.getMessage());
+            //return false;
         }
 
 
@@ -267,22 +317,51 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
             ApplicationDTO app = null;
             List<ApplicationDTO> applicationDTOS = fit2cloudClient.getApplications(workspaceId);
             for (ApplicationDTO applicationDTO : applicationDTOS) {
-                if (applicationDTO.getId().equals(this.applicationId)) {
+                if (applicationDTO.getId().equals(applicationId)) {
                     app = applicationDTO;
                 }
             }
             if (app != null) {
+                List<TagValue> envs = fit2cloudClient.getEnvList();
+                List<ApplicationRepository> applicationRepositorys = fit2cloudClient.getApplicationRepositorys(workspaceId);
+
                 for (ApplicationRepositorySetting setting : app.getApplicationRepositorySettings()) {
                     if (setting.getId().equals(repositorySettingId)) {
                         repSetting = setting;
+                    }
+                    ApplicationRepository repository = null;
+                    for (ApplicationRepository appRepository : applicationRepositorys) {
+                        if (appRepository.getId().equals(setting.getRepositoryId())) {
+                            repository = appRepository;
+                        }
+                    }
+                    String envName = null;
+                    for (TagValue env : envs) {
+                        if (env.getId().equals(setting.getEnvId())) {
+                            envName = env.getTagValueAlias();
+                        }
+                        if ("ALL".equalsIgnoreCase(setting.getEnvId())) {
+                            envName = "全部环境";
+                        }
+                    }
+                    if(null != repository){
+                        if((envName + "---" + repository.getType()).equalsIgnoreCase(repositorySettingId)){
+                            repSetting = setting;
+                            break;
+                        }
                     }
                 }
             }
             if (repSetting != null) {
                 List<ApplicationRepository> repositories = fit2cloudClient.getApplicationRepositorys(workspaceId);
                 for (ApplicationRepository re : repositories) {
-                    if (re.getId().equals(repSetting.getRepositoryId())) {
+                    if (re.getId().equals(repSetting.getRepositoryId()) ) {
                         rep = re;
+                    }
+                    if(StringUtils.isNotBlank(re.getName())){
+                        if(re.getName().equals(repSetting.getRepositoryId())){
+                            rep = re;
+                        }
                     }
                 }
             }
@@ -462,13 +541,13 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
             log("注册应用版本中...");
             String newAppVersion = Utils.replaceTokens(build, listener, this.applicationVersionName);
             ApplicationVersionDTO applicationVersion = new ApplicationVersionDTO();
-            applicationVersion.setApplicationId(this.applicationId);
+            applicationVersion.setApplicationId(applicationId);
             applicationVersion.setName(newAppVersion);
             assert repSetting != null;
             applicationVersion.setEnvironmentValueId(repSetting.getEnvId());
             applicationVersion.setApplicationRepositoryId(repSetting.getRepositoryId());
             applicationVersion.setLocation(newAddress);
-            appVersion = fit2cloudClient.createApplicationVersion(applicationVersion, this.workspaceId);
+            appVersion = fit2cloudClient.createApplicationVersion(applicationVersion, workspaceId);
         } catch (Exception e) {
             log("版本注册失败！ 原因：" + e.getMessage());
             return false;
@@ -480,21 +559,22 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
             if (this.autoDeploy) {
                 log("创建代码部署任务...");
                 ApplicationDeployment applicationDeployment = new ApplicationDeployment();
-                applicationDeployment.setClusterId(this.clusterId);
-                applicationDeployment.setClusterRoleId(this.clusterRoleId);
-                applicationDeployment.setCloudServerId(this.cloudServerId);
+                applicationDeployment.setClusterId(clusterId);
+                applicationDeployment.setClusterRoleId(clusterRoleId);
+                applicationDeployment.setCloudServerId(cloudServerId);
                 applicationDeployment.setApplicationVersionId(appVersion.getId());
                 applicationDeployment.setPolicy(this.deployPolicy);
                 applicationDeployment.setDeploymentLevel(deploymentLevel);
                 applicationDeployment.setBackupQuantity(backupQuantity);
                 applicationDeployment.setDescription("Jenkins 触发");
-                applicationDeploy = fit2cloudClient.createApplicationDeployment(applicationDeployment, this.workspaceId);
+                applicationDeploy = fit2cloudClient.createApplicationDeployment(applicationDeployment, workspaceId);
             }
         } catch (Exception e) {
             log("创建代码部署任务失败: " + e.getMessage());
             return false;
         }
 
+        boolean deployFlag = true;
         try {
             int i = 0;
             if (this.autoDeploy && this.waitForCompletion) {
@@ -508,6 +588,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                         if (applicationDeployment.getStatus().equalsIgnoreCase("success")) {
                             log("部署结果: 成功");
                         } else {
+                            deployFlag = false;
                             throw new Exception("部署任务执行失败，具体结果请登录FIT2CLOUD控制台查看！");
                         }
                         break;
@@ -516,6 +597,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                     }
                 }
                 if (pollingFreqSec * ++i > pollingTimeoutSec) {
+                    deployFlag = false;
                     throw new Exception("部署超时,请查看FIT2CLOUD控制台！");
                 }
             }
@@ -524,8 +606,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
             return false;
         }
 
-
-        return true;
+        return deployFlag;
     }
 
     private File zipFile(String zipFileName, FilePath sourceDirectory, String includesNew, String excludesNew, String appspecFilePathNew) throws IOException, InterruptedException, IllegalArgumentException {
@@ -542,7 +623,8 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         } else {
             throw new IllegalArgumentException("没有找到对应的appspec.yml文件！");
         }
-
+        //update by and 版本为空就默认（任务民+jenkins构建号） 否则是指定的版本
+        zipFileName = StringUtils.isNotBlank(this.applicationVersionName) ? this.applicationVersionName+".zip" : zipFileName;
         File zipFile = new File("/tmp/" + zipFileName);
         final boolean fileCreated = zipFile.createNewFile();
         if (!fileCreated) {
@@ -879,7 +961,6 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     public String getApplicationRepositoryId() {
         return applicationRepositoryId;
     }
-
     public String getApplicationId() {
         return applicationId;
     }
@@ -904,9 +985,6 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         return artifactoryChecked;
     }
 
-    public String getApplicationSettingId() {
-        return applicationSettingId;
-    }
 
     public String getClusterId() {
         return clusterId;
@@ -916,13 +994,16 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         return clusterRoleId;
     }
 
+
     public String getWorkspaceId() {
         return workspaceId;
     }
 
+
     public String getCloudServerId() {
         return cloudServerId;
     }
+
 
     public String getDeployPolicy() {
         return deployPolicy;
@@ -967,6 +1048,9 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     public String getRepositorySettingId() {
         return repositorySettingId;
     }
+    public String getApplicationSettingId() {
+        return applicationSettingId;
+    }
 
     public String getArtifactType() {
         return artifactType;
@@ -1002,4 +1086,6 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     public Integer getBackupQuantity() {
         return backupQuantity;
     }
+
+
 }
