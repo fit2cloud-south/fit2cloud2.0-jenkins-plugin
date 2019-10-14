@@ -305,7 +305,10 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
             }
         } catch (Exception e) {
             log("存在参数为空或获取工作空间|集群|应用异常："+e.getMessage());
-            //return false;
+            log("...applicationId="+applicationId+";applicationVersionName="+applicationVersionName+";cloudServerId="+
+                    cloudServerId+";clusterId="+clusterId+";clusterRoleId="+clusterRoleId+";deployPolicy="+deployPolicy+";f2cAccessKey:="+
+                    f2cAccessKey+";f2cEndpoint="+f2cEndpoint+"; f2cSecretKey="+ f2cSecretKey+";path="+path+";repositorySettingId="+repositorySettingId);
+            return false;
         }
 
 
