@@ -156,7 +156,10 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     @Override
     public void perform(@Nonnull Run<?, ?> run, @Nonnull FilePath filePath, @Nonnull Launcher launcher, @Nonnull TaskListener taskListener) throws InterruptedException, IOException {
         RunWrapper wrapper = new RunWrapper(run, true);
-        execute(run, taskListener, wrapper.getProjectName(), filePath);
+        boolean executeRes = execute(run, taskListener, wrapper.getProjectName(), filePath);
+        if(!executeRes){
+            throw new InterruptedException("Interrupt to build deploy failure！");
+        }
     }
 
     @Override
