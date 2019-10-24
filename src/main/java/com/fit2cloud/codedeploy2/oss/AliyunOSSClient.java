@@ -2,8 +2,8 @@ package com.fit2cloud.codedeploy2.oss;
 
 import com.aliyun.oss.OSSClient;
 import com.aliyun.oss.model.ObjectMetadata;
-import com.fit2cloud.codedeploy2.CodeDeployException;
 import com.fit2cloud.codedeploy2.Utils;
+import com.fit2cloud.codedeploy2.impl.CodeDeployException;
 import hudson.FilePath;
 import hudson.model.Run;
 import hudson.model.TaskListener;

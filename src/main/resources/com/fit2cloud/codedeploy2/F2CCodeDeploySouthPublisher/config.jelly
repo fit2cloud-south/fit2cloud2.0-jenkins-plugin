@@ -29,87 +29,140 @@
         </f:entry>
     </f:section>
 
-    <f:section title="Zip文件上传设置">
-        <f:radioBlock title="上传至 Nexus" name="artifactType" value="Nexus" inline="true"
-                      checked="${instance.nexusChecked}">
-            <f:entry title="GroupId" field="nexusGroupId">
-                <f:textbox default="com.fit2cloud"/>
-            </f:entry>
-            <f:entry title="ArtifactId" field="nexusArtifactId">
-                <f:textbox default="test"/>
-            </f:entry>
-            <f:entry title="NexusArtifactVersion" field="nexusArtifactVersion">
-                <f:textbox default="1.0"/>
-            </f:entry>
-        </f:radioBlock>
-        <f:radioBlock title="上传至 Artifactory" name="artifactType" value="Artifactory" inline="true"
-                      checked="${instance.artifactoryChecked}">
-            <f:entry title="Path" field="path">
-                <f:textbox/>
-            </f:entry>
-        </f:radioBlock>
-        <f:radioBlock title="上传至 阿里OSS" name="artifactType" value="阿里云OSS" inline="true"
-                      checked="${instance.ossChecked}">
-            <f:entry title="Object前缀" field="objectPrefixAliyun">
-                <f:textbox/>
-            </f:entry>
-        </f:radioBlock>
-        <f:radioBlock title="上传至 亚马逊S3" name="artifactType" value="亚马逊S3" inline="true" checked="${instance.s3Checked}">
-            <f:entry title="Object前缀" field="objectPrefixAWS">
-                <f:textbox/>
-            </f:entry>
-        </f:radioBlock>
-    </f:section>
+    <f:section title="应用设置">
+        <f:radioBlock title="普通应用" name="applicationType" value="common" inline="true" checked="${instance.applicationCommon}">
+            <f:section title="Zip文件上传设置">
+                <f:radioBlock title="上传至 Nexus" name="artifactType" value="Nexus" inline="true" checked="${instance.nexusChecked}">
+                    <f:entry title="GroupId" field="nexusGroupId">
+                        <f:textbox default="com.fit2cloud"/>
+                    </f:entry>
+                    <f:entry title="ArtifactId" field="nexusArtifactId">
+                        <f:textbox default="test"/>
+                    </f:entry>
+                    <f:entry title="NexusArtifactVersion" field="nexusArtifactVersion">
+                        <f:textbox default="1.0"/>
+                    </f:entry>
+                </f:radioBlock>
+                <f:radioBlock title="上传至 Artifactory" name="artifactType" value="Artifactory" inline="true" checked="${instance.artifactoryChecked}">
+                    <f:entry title="Path" field="path">
+                        <f:textbox/>
+                    </f:entry>
+                </f:radioBlock>
+                <f:radioBlock title="上传至 阿里OSS" name="artifactType" value="阿里云OSS" inline="true" checked="${instance.ossChecked}">
+                    <f:entry title="Object前缀" field="objectPrefixAliyun">
+                        <f:textbox/>
+                    </f:entry>
+                </f:radioBlock>
+                <f:radioBlock title="上传至 亚马逊S3" name="artifactType" value="亚马逊S3" inline="true" checked="${instance.s3Checked}">
+                    <f:entry title="Object前缀" field="objectPrefixAWS">
+                        <f:textbox/>
+                    </f:entry>
+                </f:radioBlock>
+            </f:section>
 
-
-    <f:section title="CodeDeploy Zip文件设置">
-        <f:entry title="应用版本" field="applicationVersionName">
-            <f:textbox default="V1.0-${BUILD_NUMBER}"/>
-        </f:entry>
-        <f:entry title="Include Files" field="includes">
-            <f:textarea default="**"/>
-        </f:entry>
-        <f:entry title="Exclude Files" field="excludes">
-            <f:textarea default="*.class"/>
-        </f:entry>
-        <f:entry title="appspec文件路径" field="appspecFilePath">
-            <f:textbox/>
-        </f:entry>
-        <f:entry title="备注" field="description">
-            <f:textbox/>
-        </f:entry>
-    </f:section>
-
-    <f:section title="代码部署设置">
-        <f:optionalBlock title="触发自动部署" field="autoDeploy" checked="${instance.isAutoDeploy()}" inline="true">
-            <f:entry title="目标集群" field="clusterId">
-                <f:select/>
-            </f:entry>
-            <f:entry title="目标虚机组" field="clusterRoleId">
-                <f:select/>
-            </f:entry>
-            <f:entry title="目标虚机" field="cloudServerId">
-                <f:select/>
-            </f:entry>
-            <f:entry title="部署策略" field="deployPolicy">
-                <f:select/>
-            </f:entry>
-            <f:entry title="部署级别" field="deploymentLevel">
-                <f:select/>
-            </f:entry>
-            <f:entry title="备份数量" field="backupQuantity">
-                <f:textbox/>
-            </f:entry>
-
-            <f:optionalBlock title="等待部署成功？" field="waitForCompletion" checked="true" inline="true">
-                <f:entry title="查询超时时间 (秒)" field="pollingTimeoutSec">
-                    <f:textbox default="600"/>
+            <f:section title="CodeDeploy Zip文件设置">
+                <f:entry title="应用版本" field="applicationVersionName">
+                    <f:textbox default="V1.0-${BUILD_NUMBER}"/>
                 </f:entry>
-                <f:entry title="查询间隔时间 (秒)" field="pollingFreqSec">
-                    <f:textbox default="15"/>
+                <f:entry title="Include Files" field="includes">
+                    <f:textarea default="**"/>
                 </f:entry>
-            </f:optionalBlock>
+                <f:entry title="Exclude Files" field="excludes">
+                    <f:textarea default="*.class"/>
+                </f:entry>
+                <f:entry title="appspec文件路径" field="appspecFilePath">
+                    <f:textbox/>
+                </f:entry>
+                <f:entry title="备注" field="description">
+                    <f:textbox/>
+                </f:entry>
+            </f:section>
+
+            <f:section title="代码部署设置">
+                <f:optionalBlock title="触发自动部署" field="autoDeploy" checked="${instance.isAutoDeploy()}" inline="true">
+                    <f:entry title="目标集群" field="clusterId">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="目标虚机组" field="clusterRoleId">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="目标虚机" field="cloudServerId">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="部署策略" field="deployPolicy">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="部署级别" field="deploymentLevel">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="备份数量" field="backupQuantity">
+                        <f:textbox/>
+                    </f:entry>
+                </f:optionalBlock>
+            </f:section>
+        </f:radioBlock>
+
+        <f:radioBlock title="容器应用" name="applicationType" value="container" inline="true" checked="${instance.applicationContainer}">
+            <f:section title="镜像文件上传设置">
+                <f:radioBlock title="上传至 Artifactory" name="artifactType" value="Artifactory" inline="true" checked="${instance.artifactoryChecked}">
+                    <f:entry title="Image Path" field="imagePath">
+                        <f:textbox/>
+                    </f:entry>
+                </f:radioBlock>
+                <f:radioBlock title="上传至 Harbor" name="artifactType" value="Harbor" inline="true"  checked="${instance.harborChecked}">
+                    <f:entry title="Image With Tag" field="imageNameWithTag">
+                        <f:textbox/>
+                    </f:entry>
+                </f:radioBlock>
+                <f:entry title="应用版本" field="paasApplicationVersionName">
+                    <f:textbox default="V1.0-${BUILD_NUMBER}"/>
+                </f:entry>
+            </f:section>
+            <f:section title="代码部署设置">
+                <f:optionalBlock title="触发自动部署" field="autoPaaSDeploy" checked="${instance.isAutoDeploy}" inline="true">
+                    <f:entry title="产品名称" field="projectName">
+                        <f:textbox/>
+                    </f:entry>
+                    <f:entry title="目标集群" field="cluster">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="命名空间" field="namespace">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="APP名称" field="appName">
+                        <f:textbox/>
+                    </f:entry>
+                    <f:entry title="容器名称" field="containerName">
+                        <f:textbox/>
+                    </f:entry>
+                    <f:entry title="副本数量" field="replicas">
+                        <f:textbox default="1"/>
+                    </f:entry>
+                    <f:entry title="cpu(核)" field="limitCpu">
+                        <f:textbox default="1"/>
+                    </f:entry>
+                    <f:entry title="内存(GB)" field="limitMemory">
+                        <f:textbox default="1"/>
+                    </f:entry>
+                    <f:entry title="部署策略" field="strategy">
+                        <f:select/>
+                    </f:entry>
+                    <f:entry title="资源类型" field="resourceKind">
+                        <f:select/>
+                    </f:entry>
+                </f:optionalBlock>
+            </f:section>
+        </f:radioBlock>
+
+        <f:optionalBlock title="等待部署成功？" field="waitForCompletion" checked="true" inline="true">
+            <f:entry title="查询超时时间 (秒)" field="pollingTimeoutSec">
+                <f:textbox default="600"/>
+            </f:entry>
+            <f:entry title="查询间隔时间 (秒)" field="pollingFreqSec">
+                <f:textbox default="15"/>
+            </f:entry>
         </f:optionalBlock>
+
     </f:section>
 
 </j:jelly>

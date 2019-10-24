@@ -1,25 +1,21 @@
 package com.fit2cloud.codedeploy2;
 
 import com.fit2cloud.codedeploy2.client.Fit2cloudClient;
-import com.fit2cloud.codedeploy2.client.model.*;
-import com.fit2cloud.codedeploy2.oss.AWSS3Client;
-import com.fit2cloud.codedeploy2.oss.AliyunOSSClient;
-import com.fit2cloud.codedeploy2.oss.ArtifactoryUploader;
-import com.fit2cloud.codedeploy2.oss.NexusUploader;
+import com.fit2cloud.codedeploy2.client.model.ApplicationRepository;
+import com.fit2cloud.codedeploy2.client.model.ApplicationRepositorySetting;
+import com.fit2cloud.codedeploy2.impl.*;
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.Launcher;
 import hudson.model.*;
-import hudson.model.Result;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.BuildStepMonitor;
 import hudson.tasks.Publisher;
-import hudson.util.DirScanner;
+import hudson.tasks.Recorder;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import jenkins.tasks.SimpleBuildStep;
 import net.sf.json.JSONObject;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.workflow.support.steps.build.RunWrapper;
@@ -28,15 +24,16 @@ import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
 
 import javax.annotation.Nonnull;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
 
-public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuildStep {
+/**
+ * 不再直接继承 Publisher
+ * 代码官方建议继承 Recorder
+ *
+ * @author yankaijun
+ */
+public class F2CCodeDeploySouthPublisher extends Recorder implements SimpleBuildStep {
     private static final String LOG_PREFIX = "[FIT2CLOUD 代码部署 V2.0]";
     private final String f2cEndpoint;
     private final String f2cAccessKey;
@@ -67,9 +64,30 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     private final boolean ossChecked;
     private final boolean s3Checked;
     private final boolean artifactoryChecked;
-
-
-
+    private final boolean harborChecked;
+    /**
+     * 容器应用参数 begin
+     */
+    private final String imagePath;
+    private final boolean applicationCommon;
+    private final boolean applicationContainer;
+    private final String imageNameWithTag;
+    private final String projectName;
+    private final String cluster;
+    private final String namespace;
+    private final String appName;
+    private final String containerName;
+    private final String replicas;
+    private final String limitCpu;
+    private final String limitMemory;
+    private final String strategy;
+    private final String resourceKind;
+    private final String applicationType;
+    private final String paasApplicationVersionName;
+    private final boolean autoPaaSDeploy;
+    /**
+     * 容器应用参数 end
+     */
     private final String path;
     //上传到阿里云参数
     private final String objectPrefixAliyun;
@@ -77,10 +95,14 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     private final String objectPrefixAWS;
     private final String repositorySettingId;
     private final String artifactType;
-
     private PrintStream logger;
 
-    // Fields in config.jelly must match the parameter names in the "DataBoundConstructor"
+    private static final String COMMON_APP = "common";
+    private static final String CONTAINER_APP = "container";
+
+    /**
+     * Fields in config.jelly must match the parameter names in the "DataBoundConstructor"
+     */
     @DataBoundConstructor
     public F2CCodeDeploySouthPublisher(String f2cEndpoint,
                                        String f2cAccessKey,
@@ -94,11 +116,8 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                                        String deploymentLevel,
                                        Integer backupQuantity,
                                        String applicationVersionName,
+                                       String paasApplicationVersionName,
                                        boolean waitForCompletion,
-                                       boolean nexusChecked,
-                                       boolean ossChecked,
-                                       boolean s3Checked,
-                                       boolean artifactoryChecked,
                                        boolean autoDeploy,
                                        Long pollingTimeoutSec,
                                        Long pollingFreqSec,
@@ -107,10 +126,24 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                                        String appspecFilePath,
                                        String description,
                                        String artifactType,
+                                       String applicationType,
                                        String repositorySettingId,
                                        String objectPrefixAliyun,
                                        String objectPrefixAWS,
                                        String path,
+                                       String imagePath,
+                                       String imageNameWithTag,
+                                       String projectName,
+                                       boolean autoPaaSDeploy,
+                                       String namespace,
+                                       String cluster,
+                                       String appName,
+                                       String containerName,
+                                       String replicas,
+                                       String limitCpu,
+                                       String limitMemory,
+                                       String strategy,
+                                       String resourceKind,
                                        String nexusGroupId,
                                        String nexusArtifactId,
                                        String nexusArtifactVersion) {
@@ -125,6 +158,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         this.workspaceId = workspaceId;
         this.cloudServerId = cloudServerId;
         this.applicationVersionName = applicationVersionName;
+        this.paasApplicationVersionName = paasApplicationVersionName;
         this.deployPolicy = deployPolicy;
         this.deploymentLevel = deploymentLevel;
         this.backupQuantity = backupQuantity == null ? 0 : backupQuantity;
@@ -142,20 +176,39 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         this.nexusGroupId = nexusGroupId;
         this.nexusArtifactId = nexusArtifactId;
         this.nexusArtifactVersion = nexusArtifactVersion;
-        this.nexusChecked = artifactType.equals(ArtifactType.NEXUS) ? true : false;
-        this.artifactoryChecked = artifactType.equals(ArtifactType.ARTIFACTORY) ? true : false;
-        this.ossChecked = artifactType.equals(ArtifactType.OSS) ? true : false;
-        this.s3Checked = artifactType.equals(ArtifactType.S3) ? true : false;
-        ;
+        this.nexusChecked = ArtifactType.NEXUS.equals(artifactType) ? true : false;
+        this.artifactoryChecked = ArtifactType.ARTIFACTORY.equals(artifactType) ? true : false;
+        this.ossChecked = ArtifactType.OSS.equals(artifactType) ? true : false;
+        this.s3Checked = ArtifactType.S3.equals(artifactType) ? true : false;
+        this.harborChecked = ArtifactType.HARBOR.equals(artifactType) ? true : false;
+        this.applicationCommon = COMMON_APP.equals(applicationType);
+        this.applicationContainer = CONTAINER_APP.equals(applicationType);
+        this.applicationType = applicationType;
+        this.imageNameWithTag = imageNameWithTag;
+        this.imagePath = imagePath;
+        this.projectName = projectName;
+        this.cluster = cluster;
+        this.namespace = namespace;
+        this.appName = appName;
+        this.containerName = containerName;
+        this.autoPaaSDeploy = autoPaaSDeploy;
+        this.replicas = replicas;
+        this.limitCpu = limitCpu;
+        this.limitMemory = limitMemory;
+        this.strategy = strategy;
+        this.resourceKind = resourceKind;
     }
 
-
+    @Override
+    public BuildStepMonitor getRequiredMonitorService() {
+        return BuildStepMonitor.STEP;
+    }
 
     @Override
     public void perform(@Nonnull Run<?, ?> run, @Nonnull FilePath filePath, @Nonnull Launcher launcher, @Nonnull TaskListener taskListener) throws InterruptedException, IOException {
         RunWrapper wrapper = new RunWrapper(run, true);
         boolean executeRes = execute(run, taskListener, wrapper.getProjectName(), filePath);
-        if(!executeRes){
+        if (!executeRes) {
             throw new InterruptedException("Interrupt to build deploy failure！");
         }
     }
@@ -168,737 +221,67 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     private boolean execute(Run<?, ?> build, TaskListener listener, String projectName, FilePath workspace) {
         this.logger = listener.getLogger();
         int builtNumber = build.getNumber();
-        String workspaceId = null;
-        String applicationId = null;
-        String clusterId = null;
-        String cloudServerId =null;
-        String clusterRoleId = null;
         final boolean buildFailed = build.getResult() == Result.FAILURE;
         if (buildFailed) {
-            log("Skipping CodeDeploy publisher as build failed");
-            return true;
+            log("Build Failed, Skipping CodeDeploy publisher as build failed");
+            return false;
         }
         final Fit2cloudClient fit2cloudClient = new Fit2cloudClient(this.f2cAccessKey, this.f2cSecretKey, this.f2cEndpoint);
 
-
+        // 1.校验参数
         log("开始校验参数...");
-        try {
-            boolean findWorkspace = false;
-            List<Workspace> workspaces = fit2cloudClient.getWorkspace();
-            String tmpWorkspaceId = this.workspaceId;
-            for (Workspace wk : workspaces) {
-                if (wk.getId().equals(this.workspaceId) ) {
-                    findWorkspace = true;
-                    tmpWorkspaceId = wk.getId();
-                }
-                if(StringUtils.isNotBlank(wk.getName())){
-                    if(wk.getName().equals(this.workspaceId)){
-                        findWorkspace = true;
-                        tmpWorkspaceId = wk.getId();
-                    }
-                }
-            }
-            workspaceId = tmpWorkspaceId;
-            if (!findWorkspace) {
-                throw new CodeDeployException("工作空间不存在！");
-            }
-
-            boolean findApplication = false;
-            String tmpApplicationId = this.applicationId;
-            List<ApplicationDTO> applications = fit2cloudClient.getApplications(workspaceId);
-            for (ApplicationDTO applicationDTO : applications) {
-                if (applicationDTO.getId().equals(this.applicationId) ) {
-                    findApplication = true;
-                    tmpApplicationId = applicationDTO.getId();
-                }
-                if(StringUtils.isNotBlank(applicationDTO.getName())){
-                    if(applicationDTO.getName().equals(this.applicationId)){
-                        findApplication = true;
-                        tmpApplicationId = applicationDTO.getId();
-                    }
-                }
-            }
-            applicationId =  tmpApplicationId;
-            if (!findApplication) {
-                throw new CodeDeployException("应用不存在！");
-            }
-
-
-            if (autoDeploy) {
-                boolean findCluster = false;
-                List<ClusterDTO> clusters  = fit2cloudClient.getClusters(workspaceId);
-                String tmpClusterId = this.clusterId;
-                if(CollectionUtils.isNotEmpty(clusters)){
-                    for (ClusterDTO clusterDTO : clusters) {
-                        if (clusterDTO.getId().equals(this.clusterId)) {
-                            findCluster = true;
-                            tmpClusterId= clusterDTO.getId();
-                        }
-                        if(StringUtils.isNotBlank(clusterDTO.getName())){
-                            if(clusterDTO.getName().equals(this.clusterId)){
-                                findCluster = true;
-                                tmpClusterId= clusterDTO.getId();
-                            }
-                        }
-                    }
-                }
-                if (!findCluster) {
-                    throw new CodeDeployException("集群不存在! ");
-                }
-                clusterId =  tmpClusterId;
-
-                List<ClusterRole> clusterRoles = fit2cloudClient.getClusterRoles(workspaceId, clusterId);
-                if (clusterRoles.size() == 0) {
-                    throw new CodeDeployException("此集群下主机组为空！");
-                }
-
-                String tmpClusterRoleId=this.clusterRoleId;
-                if (!"ALL".equalsIgnoreCase(this.clusterRoleId)) {
-                    boolean findClusterRole = false;
-                    for (ClusterRole clusterRole : clusterRoles) {
-                        if (clusterRole.getId().equals(this.clusterRoleId)) {
-                            findClusterRole = true;
-                            tmpClusterRoleId= clusterRole.getId();
-                        }
-                        if(StringUtils.isNotBlank(clusterRole.getName())){
-                            if(clusterRole.getName().equals(this.clusterRoleId)){
-                                findClusterRole = true;
-                                tmpClusterRoleId= clusterRole.getId();
-                            }
-                        }
-                    }
-                    if (!findClusterRole) {
-                        throw new CodeDeployException("主机组不存在! ");
-                    }
-                }
-                clusterRoleId =tmpClusterRoleId;
-
-                List<CloudServer> cloudServers = fit2cloudClient.getCloudServers(workspaceId, clusterRoleId, clusterId);
-                if (cloudServers.size() == 0) {
-                    throw new CodeDeployException("此主机组下主机为空！");
-                }
-                String tmpCloudServerId=this.cloudServerId;
-                if (!"ALL".equalsIgnoreCase(this.cloudServerId)) {
-                    boolean findCLoudServer = false;
-                    for (CloudServer cloudServer : cloudServers) {
-                        if (cloudServer.getId().equals(this.cloudServerId)) {
-                            findCLoudServer = true;
-                            tmpCloudServerId = cloudServer.getId();
-                        }
-                        if(StringUtils.isNotBlank(cloudServer.getInstanceName())){
-                            if(cloudServer.getInstanceName().equals(this.cloudServerId)){
-                                findCLoudServer = true;
-                                tmpCloudServerId = cloudServer.getId();
-                            }
-                        }
-                    }
-                    if (!findCLoudServer) {
-                        throw new CodeDeployException("主机组不存在! ");
-                    }
-                }
-
-                if (StringUtils.isBlank(deploymentLevel)) {
-                    log("部署级别不可为空");
-                }
-                cloudServerId =  tmpCloudServerId;
-
-            }
-        } catch (Exception e) {
-            log("存在参数为空或获取工作空间|集群|应用异常："+e.getMessage());
-            //return false;
+        ParamCheck paramCheck = new ParamCheck(fit2cloudClient).invoke(this);
+        if (paramCheck.isFailed()) {
+            return false;
         }
+        log("校验参数成功...");
 
+        // 2.查询仓库
+        RepositorySelect repositorySelect = new RepositorySelect(workspaceId, applicationId, fit2cloudClient).invoke(this);
+        if (repositorySelect.failed()) {
+            return false;
+        }
+        ApplicationRepository applicationRepository = repositorySelect.getApplicationRepository();
+        ApplicationRepositorySetting repSetting = repositorySelect.getRepSetting();
 
-        // 查询仓库
-        ApplicationRepository applicationRepository = null;
-        ApplicationRepositorySetting repSetting = null;
-        ApplicationRepository rep = null;
+        // 3.上传文件
+        UploadFile uploadFile;
         try {
-            ApplicationDTO app = null;
-            List<ApplicationDTO> applicationDTOS = fit2cloudClient.getApplications(workspaceId);
-            for (ApplicationDTO applicationDTO : applicationDTOS) {
-                if (applicationDTO.getId().equals(applicationId)) {
-                    app = applicationDTO;
-                }
-            }
-            if (app != null) {
-                List<TagValue> envs = fit2cloudClient.getEnvList();
-                List<ApplicationRepository> applicationRepositorys = fit2cloudClient.getApplicationRepositorys(workspaceId);
-
-                for (ApplicationRepositorySetting setting : app.getApplicationRepositorySettings()) {
-                    if (setting.getId().equals(repositorySettingId)) {
-                        repSetting = setting;
-                    }
-                    ApplicationRepository repository = null;
-                    for (ApplicationRepository appRepository : applicationRepositorys) {
-                        if (appRepository.getId().equals(setting.getRepositoryId())) {
-                            repository = appRepository;
-                        }
-                    }
-                    String envName = null;
-                    for (TagValue env : envs) {
-                        if (env.getId().equals(setting.getEnvId())) {
-                            envName = env.getTagValueAlias();
-                        }
-                        if ("ALL".equalsIgnoreCase(setting.getEnvId())) {
-                            envName = "全部环境";
-                        }
-                    }
-                    if(null != repository){
-                        if((envName + "---" + repository.getType()).equalsIgnoreCase(repositorySettingId)){
-                            repSetting = setting;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (repSetting != null) {
-                List<ApplicationRepository> repositories = fit2cloudClient.getApplicationRepositorys(workspaceId);
-                for (ApplicationRepository re : repositories) {
-                    if (re.getId().equals(repSetting.getRepositoryId()) ) {
-                        rep = re;
-                    }
-                    if(StringUtils.isNotBlank(re.getName())){
-                        if(re.getName().equals(repSetting.getRepositoryId())){
-                            rep = re;
-                        }
-                    }
-                }
-            }
-
-            if (rep != null) {
-                applicationRepository = rep;
-            }
-
-            String repoType = applicationRepository.getType();
-            if (!artifactType.equalsIgnoreCase(repoType)) {
-                log("所选仓库与 \"Zip文件上传设置\"中的类型设置不匹配!");
+            uploadFile = new UploadFile(build, listener, projectName, workspace, builtNumber, applicationRepository, artifactType).invoke(this);
+            if (uploadFile.failed()) {
                 return false;
             }
-
         } catch (Exception e) {
-            log("加载仓库失败！" + e.getMessage());
+            log("上传文件失败");
             return false;
         }
 
-
-        //FilePath workspace = build.getWorkspace();
-        File zipFile = null;
-        String zipFileName = null;
-        String newAddress = null;
-        try {
-            zipFileName = projectName + "-" + builtNumber + ".zip";
-            String includesNew = Utils.replaceTokens(build, listener, this.includes);
-            String excludesNew = Utils.replaceTokens(build, listener, this.excludes);
-            String appspecFilePathNew = Utils.replaceTokens(build, listener, this.appspecFilePath);
-
-            zipFile = zipFile(zipFileName, workspace, includesNew, excludesNew, appspecFilePathNew);
-
-
-            switch (artifactType) {
-                case ArtifactType.OSS:
-                    log("开始上传zip文件到OSS服务器");
-                    //getBucketLocation
-                    String expFP = Utils.replaceTokens(build, listener, zipFile.toString());
-
-                    if (expFP != null) {
-                        expFP = expFP.trim();
-                    }
-
-                    // Resolve virtual path
-                    String expVP = Utils.replaceTokens(build, listener, objectPrefixAliyun);
-                    if (Utils.isNullOrEmpty(expVP)) {
-                        expVP = null;
-                    }
-                    if (!Utils.isNullOrEmpty(expVP) && !expVP.endsWith(Utils.FWD_SLASH)) {
-                        expVP = expVP.trim() + Utils.FWD_SLASH;
-                    }
-                    try {
-                        int filesUploaded = AliyunOSSClient.upload(build, workspace, listener,
-                                applicationRepository.getAccessId(),
-                                applicationRepository.getAccessPassword(),
-                                ".aliyuncs.com",
-                                applicationRepository.getRepository().replace("bucket:", ""), expFP, expVP, zipFile);
-                        if (filesUploaded > 0) {
-                            log("上传Artifacts到阿里云OSS成功!");
-                        }
-                    } catch (Exception e) {
-                        log("上传Artifact到阿里云OSS失败，错误消息如下:");
-                        log(e.getMessage());
-                        e.printStackTrace(this.logger);
-                        return false;
-                    }
-                    log("上传zip文件到oss服务器成功!");
-                    if (expVP == null) {
-                        newAddress = zipFile.getName();
-                    } else {
-                        newAddress = objectPrefixAliyun + "/" + zipFile.getName();
-                    }
-                    log("文件路径" + newAddress);
-                    break;
-                case ArtifactType.ARTIFACTORY:
-                    log("开始上传zip文件到Artifactory服务器");
-                    if (StringUtils.isBlank(path)) {
-                        log("请输入上传至 Artifactory 的 Path");
-                        return false;
-                    }
-                    String pathNew = Utils.replaceTokens(build, listener, path);
-                    try {
-
-                        String r = applicationRepository.getRepository();
-                        String server = r.substring(0, r.indexOf("/artifactory"));
-                        newAddress = ArtifactoryUploader.uploadArtifactory(zipFile, server.trim(),
-                                applicationRepository.getAccessId(), applicationRepository.getAccessPassword(), r, pathNew);
-                    } catch (Exception e) {
-                        log("上传文件到 Artifactory 服务器失败！错误消息如下:");
-                        log(e.getMessage());
-                        e.printStackTrace(this.logger);
-                        return false;
-                    }
-                    log("上传zip文件到Artifactory服务器成功!");
-                    break;
-                case ArtifactType.NEXUS:
-                    if (StringUtils.isBlank(nexusArtifactId) || StringUtils.isBlank(nexusGroupId) || StringUtils.isBlank(nexusArtifactVersion)) {
-                        log("请输入上传至 Nexus 的 GroupId、 ArtifactId 和 NexusArtifactVersion");
-                        return false;
-                    }
-                    String nexusGroupIdNew = Utils.replaceTokens(build, listener, nexusGroupId);
-                    String nexusArtifactIdNew = Utils.replaceTokens(build, listener, nexusArtifactId);
-                    String nexusArtifactVersionNew = Utils.replaceTokens(build, listener, nexusArtifactVersion);
-
-                    log("开始上传zip文件到nexus服务器");
-                    try {
-                        newAddress = NexusUploader.upload(zipFile, applicationRepository.getAccessId(), applicationRepository.getAccessPassword(), applicationRepository.getRepository(),
-                                nexusGroupIdNew, nexusArtifactIdNew, String.valueOf(builtNumber), "zip", nexusArtifactVersionNew);
-                    } catch (Exception e) {
-                        log("上传文件到 Nexus 服务器失败！错误消息如下:");
-                        log(e.getMessage());
-                        e.printStackTrace(this.logger);
-                        return false;
-                    }
-                    log("上传zip文件到nexus服务器成功!");
-                    break;
-                case ArtifactType.S3:
-                    log("开始上传zip文件到AWS服务器");
-                    //getBucketLocation
-                    String expFPAws = Utils.replaceTokens(build, listener, zipFile.toString());
-
-                    if (expFPAws != null) {
-                        expFPAws = expFPAws.trim();
-                    }
-
-                    // Resolve virtual path
-                    String expVPAws = Utils.replaceTokens(build, listener, objectPrefixAWS);
-                    if (Utils.isNullOrEmpty(expVPAws)) {
-                        expVPAws = null;
-                    }
-                    if (!Utils.isNullOrEmpty(expVPAws) && !expVPAws.endsWith(Utils.FWD_SLASH)) {
-                        expVPAws = expVPAws.trim() + Utils.FWD_SLASH;
-                    }
-                    try {
-                        AWSS3Client.upload(build, workspace, listener,
-                                applicationRepository.getAccessId(),
-                                applicationRepository.getAccessPassword(),
-                                null,
-                                applicationRepository.getRepository(), expFPAws, expVPAws, zipFile);
-                        log("上传Artifacts到亚马逊AWS成功!");
-                    } catch (Exception e) {
-                        log("上传Artifact到亚马逊AWS失败，错误消息如下:");
-                        log(e.getMessage());
-                        e.printStackTrace(this.logger);
-                        return false;
-                    }
-                    log("上传zip文件到亚马逊AWS服务器成功!");
-                    if (expVPAws == null) {
-                        newAddress = zipFile.getName();
-                    } else {
-                        newAddress = objectPrefixAWS + "/" + zipFile.getName();
-                    }
-                    log("文件路径:" + newAddress);
-                    break;
-                default:
-                    log("暂时不支持 " + artifactType + " 类型制品库");
-                    return false;
-            }
-
-
-        } catch (Exception e) {
-            log("生成ZIP包失败: " + e.getMessage());
-            return false;
-        } finally {
-            if(zipFile != null && zipFile.exists()){
-                try {
-                    log("删除 Zip 文件 " + zipFile.getAbsolutePath());
-                    zipFile.delete();
-                }catch (Exception e){
-                }
-            }
-        }
-
-
-        ApplicationVersion appVersion = null;
-        try {
-            log("注册应用版本中...");
-            String newAppVersion = Utils.replaceTokens(build, listener, this.applicationVersionName);
-            ApplicationVersionDTO applicationVersion = new ApplicationVersionDTO();
-            applicationVersion.setApplicationId(applicationId);
-            applicationVersion.setName(newAppVersion);
-            assert repSetting != null;
-            applicationVersion.setEnvironmentValueId(repSetting.getEnvId());
-            applicationVersion.setApplicationRepositoryId(repSetting.getRepositoryId());
-            applicationVersion.setLocation(newAddress);
-            appVersion = fit2cloudClient.createApplicationVersion(applicationVersion, workspaceId);
-        } catch (Exception e) {
-            log("版本注册失败！ 原因：" + e.getMessage());
-            return false;
-        }
-        log("注册版本成功！");
-
-        ApplicationDeployment applicationDeploy = null;
-        try {
-            if (this.autoDeploy) {
-                log("创建代码部署任务...");
-                ApplicationDeployment applicationDeployment = new ApplicationDeployment();
-                applicationDeployment.setClusterId(clusterId);
-                applicationDeployment.setClusterRoleId(clusterRoleId);
-                applicationDeployment.setCloudServerId(cloudServerId);
-                applicationDeployment.setApplicationVersionId(appVersion.getId());
-                applicationDeployment.setPolicy(this.deployPolicy);
-                applicationDeployment.setDeploymentLevel(deploymentLevel);
-                applicationDeployment.setBackupQuantity(backupQuantity);
-                applicationDeployment.setDescription("Jenkins 触发");
-                applicationDeploy = fit2cloudClient.createApplicationDeployment(applicationDeployment, workspaceId);
-            }
-        } catch (Exception e) {
-            log("创建代码部署任务失败: " + e.getMessage());
-            return false;
-        }
-
-        boolean deployFlag = true;
-        try {
-            int i = 0;
-            if (this.autoDeploy && this.waitForCompletion) {
-                log("执行代码部署...");
-                while (true) {
-                    Thread.sleep(1000 * pollingFreqSec);
-                    ApplicationDeployment applicationDeployment = fit2cloudClient.getApplicationDeployment(applicationDeploy.getId());
-                    if (applicationDeployment.getStatus().equalsIgnoreCase("success")
-                            || applicationDeployment.getStatus().equalsIgnoreCase("fail")) {
-                        log("部署完成！");
-                        if (applicationDeployment.getStatus().equalsIgnoreCase("success")) {
-                            log("部署结果: 成功");
-                        } else {
-                            deployFlag = false;
-                            throw new Exception("部署任务执行失败，具体结果请登录FIT2CLOUD控制台查看！");
-                        }
-                        break;
-                    } else {
-                        log("部署任务运行中...");
-                    }
-                }
-                if (pollingFreqSec * ++i > pollingTimeoutSec) {
-                    deployFlag = false;
-                    throw new Exception("部署超时,请查看FIT2CLOUD控制台！");
-                }
-            }
-        } catch (Exception e) {
-            log("执行代码部署失败: " + e.getMessage());
-            return false;
-        }
-
-        return deployFlag;
-    }
-
-    private File zipFile(String zipFileName, FilePath sourceDirectory, String includesNew, String excludesNew, String appspecFilePathNew) throws IOException, InterruptedException, IllegalArgumentException {
-        FilePath appspecFp = new FilePath(sourceDirectory, appspecFilePathNew);
-
-        log("指定 appspecPath ::::: " + appspecFp.toURI().getPath());
-        if (appspecFp.exists()) {
-            if (!"appspec.yml".equals(appspecFilePathNew)) {
-                FilePath appspecDestFP = new FilePath(sourceDirectory, "appspec.yml");
-                log("目标 appspecPath  ::::: " + appspecDestFP.toURI().getPath());
-                appspecFp.copyTo(appspecDestFP);
-            }
-            log("成功添加appspec文件");
+        String newAddress;
+        if (this.isApplicationCommon()) {
+            newAddress = uploadFile.getNewAddress();
         } else {
-            throw new IllegalArgumentException("没有找到对应的appspec.yml文件！");
+            newAddress = this.imageNameWithTag;
         }
-        //update by and 版本为空就默认（任务民+jenkins构建号） 否则是指定的版本
-        zipFileName = StringUtils.isNotBlank(this.applicationVersionName) ? this.applicationVersionName+".zip" : zipFileName;
-        File zipFile = new File("/tmp/" + zipFileName);
-        final boolean fileCreated = zipFile.createNewFile();
-        if (!fileCreated) {
-            log("Zip文件已存在，开始覆盖 : " + zipFile.getPath());
+        // 4. 注册应用版本和部署代码
+        //这些参数被重新更新过
+        String clusterId = paramCheck.getClusterId();
+        String cloudServerId = paramCheck.getCloudServerId();
+        String clusterRoleId = paramCheck.getClusterRoleId();
+        String applicationId = paramCheck.getApplicationId();
+        String workspaceId = paramCheck.getWorkspaceId();
+        CodeDeploy codeDeploy = new CodeDeploy(build, listener, workspaceId, applicationId, clusterId, cloudServerId, clusterRoleId, fit2cloudClient, repSetting, newAddress).invoke(this);
+        if (codeDeploy.failed()) {
+            return false;
         }
-
-        log("生成Zip文件 : " + zipFile.getAbsolutePath());
-        FileOutputStream outputStream = new FileOutputStream(zipFile);
-        try {
-            String allIncludes = includesNew + ",appspec.yml";
-            sourceDirectory.zip(
-                    outputStream,
-                    new DirScanner.Glob(allIncludes, excludesNew)
-            );
-        } finally {
-            outputStream.close();
-        }
-        return zipFile;
+        return codeDeploy.isDeployFlag();
     }
 
-
-    @Override
-    public DescriptorImpl getDescriptor() {
-
-        return (DescriptorImpl) super.getDescriptor();
-    }
-
-    @Override
-    public BuildStepMonitor getRequiredMonitorService() {
-        return BuildStepMonitor.STEP;
-    }
-
+    /**
+     * This indicates to Jenkins that this isFailed an implementation of an extension point.
+     */
     @Symbol("fit2cloud")
-    @Extension // This indicates to Jenkins that this is an implementation of an extension point.
+    @Extension
     public static final class DescriptorImpl extends BuildStepDescriptor<Publisher> {
-        public FormValidation doCheckAccount(
-                @QueryParameter String f2cAccessKey,
-                @QueryParameter String f2cSecretKey,
-                @QueryParameter String f2cEndpoint) {
-            if (StringUtils.isEmpty(f2cAccessKey)) {
-                return FormValidation.error("FIT2CLOUD ConsumerKey不能为空！");
-            }
-            if (StringUtils.isEmpty(f2cSecretKey)) {
-                return FormValidation.error("FIT2CLOUD SecretKey不能为空！");
-            }
-            if (StringUtils.isEmpty(f2cEndpoint)) {
-                return FormValidation.error("FIT2CLOUD EndPoint不能为空！");
-            }
-            try {
-                Fit2cloudClient fit2cloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                fit2cloudClient.checkUser();
-            } catch (Exception e) {
-                return FormValidation.error(e.getMessage());
-            }
-            return FormValidation.ok("验证FIT2CLOUD帐号成功！");
-        }
-
-
-        public ListBoxModel doFillWorkspaceIdItems(@QueryParameter String f2cAccessKey,
-                                                   @QueryParameter String f2cSecretKey,
-                                                   @QueryParameter String f2cEndpoint) {
-            ListBoxModel items = new ListBoxModel();
-            items.add("请选择工作空间", "");
-            try {
-                Fit2cloudClient fit2CloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                List<Workspace> list = fit2CloudClient.getWorkspace();
-                if (list != null && list.size() > 0) {
-                    for (Workspace c : list) {
-                        items.add(c.getName(), String.valueOf(c.getId()));
-                    }
-                }
-            } catch (Exception e) {
-//            		e.printStackTrace();
-//                return FormValidation.error(e.getMessage());
-            }
-            return items;
-        }
-
-        public ListBoxModel doFillApplicationIdItems(@QueryParameter String f2cAccessKey,
-                                                     @QueryParameter String f2cSecretKey,
-                                                     @QueryParameter String f2cEndpoint,
-                                                     @QueryParameter String workspaceId) {
-            ListBoxModel items = new ListBoxModel();
-            try {
-                List<ApplicationDTO> list = new ArrayList<>();
-                items.add("请选择应用", "");
-                Fit2cloudClient fit2CloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                if (workspaceId != null && !workspaceId.equals("")) {
-                    list = fit2CloudClient.getApplications(workspaceId);
-                }
-                if (list != null && list.size() > 0) {
-                    for (Application c : list) {
-                        items.add(c.getName(), String.valueOf(c.getId()));
-                    }
-                }
-            } catch (Exception e) {
-//            		e.printStackTrace();
-//                return FormValidation.error(e.getMessage());
-            }
-            return items;
-        }
-
-        public ListBoxModel doFillRepositorySettingIdItems(@QueryParameter String f2cAccessKey,
-                                                           @QueryParameter String f2cSecretKey,
-                                                           @QueryParameter String f2cEndpoint,
-                                                           @QueryParameter String workspaceId,
-                                                           @QueryParameter String applicationId) {
-            ListBoxModel items = new ListBoxModel();
-            try {
-                Fit2cloudClient fit2CloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                items.add("请选择环境", "");
-                List<ApplicationDTO> applicationDTOS = fit2CloudClient.getApplications(workspaceId);
-
-                ApplicationDTO application = null;
-
-                for (ApplicationDTO applicationDTO : applicationDTOS) {
-                    if (applicationDTO.getId().equals(applicationId)) {
-                        application = applicationDTO;
-                    }
-                }
-
-                assert application != null;
-                List<ApplicationRepositorySetting> list = application.getApplicationRepositorySettings();
-                List<ApplicationRepository> applicationRepositories = fit2CloudClient.getApplicationRepositorys(workspaceId);
-                List<TagValue> envs = fit2CloudClient.getEnvList();
-
-                if (list != null && list.size() > 0) {
-                    for (ApplicationRepositorySetting c : list) {
-                        ApplicationRepository repository = null;
-                        for (ApplicationRepository applicationRepository : applicationRepositories) {
-                            if (applicationRepository.getId().equals(c.getRepositoryId())) {
-                                repository = applicationRepository;
-                            }
-                        }
-                        String envName = null;
-                        for (TagValue env : envs) {
-                            if (env.getId().equals(c.getEnvId())) {
-                                envName = env.getTagValueAlias();
-                            }
-                            if (c.getEnvId().equalsIgnoreCase("ALL")) {
-                                envName = "全部环境";
-                            }
-                        }
-
-
-                        assert repository != null;
-                        items.add(envName + "---" + repository.getType(), String.valueOf(c.getId()));
-                    }
-                }
-            } catch (Exception e) {
-//            		e.printStackTrace();
-//                return FormValidation.error(e.getMessage());
-            }
-            return items;
-        }
-
-
-        public ListBoxModel doFillClusterIdItems(@QueryParameter String f2cAccessKey,
-                                                 @QueryParameter String f2cSecretKey,
-                                                 @QueryParameter String f2cEndpoint,
-                                                 @QueryParameter String workspaceId,
-                                                 @QueryParameter String applicationId,
-                                                 @QueryParameter String repositorySettingId) {
-            ListBoxModel items = new ListBoxModel();
-            items.add("请选择集群", "");
-
-            try {
-                Fit2cloudClient fit2CloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                List<ClusterDTO> list = fit2CloudClient.getClusters(workspaceId);
-
-                final Fit2cloudClient fit2cloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                ApplicationDTO applicationDTO = null;
-                List<ApplicationDTO> applications = fit2cloudClient.getApplications(workspaceId);
-                for (ApplicationDTO app : applications) {
-                    if (app.getId().equalsIgnoreCase(applicationId)) {
-                        applicationDTO = app;
-                    }
-                }
-                ApplicationRepositorySetting applicationRepositorySetting = null;
-                List<ApplicationRepositorySetting> repositorySettings = applicationDTO.getApplicationRepositorySettings();
-                for (ApplicationRepositorySetting appst : repositorySettings) {
-                    if (appst.getId().equalsIgnoreCase(repositorySettingId)) {
-                        applicationRepositorySetting = appst;
-                    }
-                }
-
-                String envValueId = applicationRepositorySetting.getEnvId();
-                String businessValueId = applicationDTO.getBusinessValueId();
-
-                if (list != null && list.size() > 0) {
-                    for (ClusterDTO c : list) {
-                        if ((businessValueId == null || businessValueId.equalsIgnoreCase(c.getSystemValueId()))
-                                && (envValueId.equalsIgnoreCase("ALL") || envValueId.equalsIgnoreCase(c.getEnvValueId()))) {
-                            items.add(c.getName(), String.valueOf(c.getId()));
-                        }
-                    }
-                }
-            } catch (Exception e) {
-//            		e.printStackTrace();
-//                return FormValidation.error(e.getMessage());
-            }
-            return items;
-        }
-
-        public ListBoxModel doFillClusterRoleIdItems(@QueryParameter String f2cAccessKey,
-                                                     @QueryParameter String f2cSecretKey,
-                                                     @QueryParameter String f2cEndpoint,
-                                                     @QueryParameter String workspaceId,
-                                                     @QueryParameter String clusterId) {
-            ListBoxModel items = new ListBoxModel();
-            items.add("请选择主机组", "");
-
-            try {
-                Fit2cloudClient fit2CloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                List<ClusterRole> list = fit2CloudClient.getClusterRoles(workspaceId, clusterId);
-                if (list != null && list.size() > 0) {
-                    items.add("全部主机组", "ALL");
-                    for (ClusterRole c : list) {
-                        items.add(c.getName(), String.valueOf(c.getId()));
-                    }
-                }
-            } catch (Exception e) {
-//            		e.printStackTrace();
-//                return FormValidation.error(e.getMessage());
-            }
-            return items;
-        }
-
-        public ListBoxModel doFillCloudServerIdItems(@QueryParameter String f2cAccessKey,
-                                                     @QueryParameter String f2cSecretKey,
-                                                     @QueryParameter String f2cEndpoint,
-                                                     @QueryParameter String workspaceId,
-                                                     @QueryParameter String clusterId,
-                                                     @QueryParameter String clusterRoleId) {
-            ListBoxModel items = new ListBoxModel();
-            items.add("请选择主机", "");
-            try {
-                Fit2cloudClient fit2CloudClient = new Fit2cloudClient(f2cAccessKey, f2cSecretKey, f2cEndpoint);
-                List<CloudServer> list = fit2CloudClient.getCloudServers(workspaceId, clusterRoleId, clusterId);
-                if (list != null && list.size() > 0) {
-                    items.add("全部主机", "ALL");
-                    for (CloudServer c : list) {
-                        items.add(c.getInstanceName(), String.valueOf(c.getId()));
-                    }
-                }
-            } catch (Exception e) {
-//            		e.printStackTrace();
-//                return FormValidation.error(e.getMessage());
-            }
-            return items;
-        }
-
-        public ListBoxModel doFillDeployPolicyItems() {
-            ListBoxModel items = new ListBoxModel();
-            items.add("全部同时部署", "all");
-            items.add("半数分批部署", "harf");
-            items.add("单台依次部署", "sigle");
-            return items;
-        }
-
-        public ListBoxModel doFillDeploymentLevelItems() {
-            ListBoxModel items = new ListBoxModel();
-            items.add("全量部署", "all");
-            items.add("增量部署", "");
-            return items;
-        }
-
-        public ListBoxModel doFillBackupQuantityItems() {
-            ListBoxModel items = new ListBoxModel();
-            items.add("全部同时部署", "all");
-            items.add("半数分批部署", "harf");
-            items.add("单台依次部署", "sigle");
-            return items;
-        }
 
         @Override
         public boolean configure(StaplerRequest req, JSONObject formData) throws FormException {
@@ -923,28 +306,148 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         }
 
         /**
-         * This human readable name is used in the configuration screen.
+         * This human readable name isFailed used in the configuration screen.
          */
         @Override
         public String getDisplayName() {
             return "FIT2CLOUD 代码部署 V2.0";
         }
 
+        public FormValidation doCheckAccount(
+                @QueryParameter String f2cAccessKey,
+                @QueryParameter String f2cSecretKey,
+                @QueryParameter String f2cEndpoint) {
 
-    }
-
-    private ApplicationSetting findApplicationSetting(String applicationId) {
-        ApplicationSetting applicationSetting = null;
-        final Fit2cloudClient fit2cloudClient = new Fit2cloudClient(this.f2cAccessKey, this.f2cSecretKey, this.f2cEndpoint);
-        List<ApplicationSetting> applicationSettings = fit2cloudClient.getApplicationSettings(applicationId);
-        for (ApplicationSetting appst : applicationSettings) {
-            if (appst.getId().equalsIgnoreCase(this.applicationSettingId)) {
-                applicationSetting = appst;
-            }
+            return ExtensionUtils.doCheckAccount(f2cAccessKey,
+                    f2cSecretKey,
+                    f2cEndpoint);
         }
-        return applicationSetting;
-    }
 
+        public ListBoxModel doFillWorkspaceIdItems(@QueryParameter String f2cAccessKey,
+                                                   @QueryParameter String f2cSecretKey,
+                                                   @QueryParameter String f2cEndpoint) {
+            return ExtensionUtils.doFillWorkspaceIdItems(f2cAccessKey,
+                    f2cSecretKey,
+                    f2cEndpoint);
+        }
+
+        public ListBoxModel doFillApplicationIdItems(@QueryParameter String f2cAccessKey,
+                                                     @QueryParameter String f2cSecretKey,
+                                                     @QueryParameter String f2cEndpoint,
+                                                     @QueryParameter String workspaceId) {
+            return ExtensionUtils.doFillApplicationIdItems(f2cAccessKey,
+                    f2cSecretKey,
+                    f2cEndpoint,
+                    workspaceId);
+        }
+
+        public ListBoxModel doFillRepositorySettingIdItems(@QueryParameter String f2cAccessKey,
+                                                           @QueryParameter String f2cSecretKey,
+                                                           @QueryParameter String f2cEndpoint,
+                                                           @QueryParameter String workspaceId,
+                                                           @QueryParameter String applicationId) {
+            return ExtensionUtils.doFillRepositorySettingIdItems(f2cAccessKey,
+                    f2cSecretKey,
+                    f2cEndpoint,
+                    workspaceId,
+                    applicationId);
+        }
+
+        public ListBoxModel doFillClusterIdItems(@QueryParameter String f2cAccessKey,
+                                                 @QueryParameter String f2cSecretKey,
+                                                 @QueryParameter String f2cEndpoint,
+                                                 @QueryParameter String workspaceId,
+                                                 @QueryParameter String applicationId,
+                                                 @QueryParameter String repositorySettingId) {
+            return ExtensionUtils.doFillClusterIdItems(f2cAccessKey,
+                    f2cSecretKey,
+                    f2cEndpoint,
+                    workspaceId,
+                    applicationId,
+                    repositorySettingId);
+        }
+
+        public ListBoxModel doFillClusterRoleIdItems(@QueryParameter String f2cAccessKey,
+                                                     @QueryParameter String f2cSecretKey,
+                                                     @QueryParameter String f2cEndpoint,
+                                                     @QueryParameter String workspaceId,
+                                                     @QueryParameter String clusterId) {
+            return ExtensionUtils.doFillClusterRoleIdItems(f2cAccessKey,
+                    f2cSecretKey,
+                    f2cEndpoint,
+                    workspaceId,
+                    clusterId);
+        }
+
+        public ListBoxModel doFillCloudServerIdItems(@QueryParameter String f2cAccessKey,
+                                                     @QueryParameter String f2cSecretKey,
+                                                     @QueryParameter String f2cEndpoint,
+                                                     @QueryParameter String workspaceId,
+                                                     @QueryParameter String clusterId,
+                                                     @QueryParameter String clusterRoleId) {
+            return ExtensionUtils.doFillCloudServerIdItems(f2cAccessKey,
+                    f2cSecretKey,
+                    f2cEndpoint,
+                    workspaceId,
+                    clusterId,
+                    clusterRoleId);
+        }
+
+        public ListBoxModel doFillDeployPolicyItems() {
+            return ExtensionUtils.doFillDeployPolicyItems();
+        }
+
+        public ListBoxModel doFillDeploymentLevelItems() {
+            return ExtensionUtils.doFillDeploymentLevelItems();
+        }
+
+        public ListBoxModel doFillBackupQuantityItems() {
+            return ExtensionUtils.doFillBackupQuantityItems();
+        }
+
+        /**
+         * PaaS 部署策略
+         *
+         * @return
+         */
+        public ListBoxModel doFillStrategyItems() {
+            return ExtensionUtils.doFillStrategyItems();
+        }
+
+        /**
+         * PaaS资源类型
+         *
+         * @return
+         */
+        public ListBoxModel doFillResourceKindItems() {
+            return ExtensionUtils.doFillResourceKindItems();
+        }
+
+        /**
+         * PaaS部署目标集群
+         *
+         * @return
+         */
+        public ListBoxModel doFillClusterItems(@QueryParameter String f2cAccessKey,
+                                               @QueryParameter String f2cSecretKey,
+                                               @QueryParameter String f2cEndpoint) {
+            return ExtensionUtils.doFillClusterItems(f2cAccessKey, f2cSecretKey, f2cEndpoint);
+        }
+
+        /**
+         * PaaS部署命名空间
+         *
+         * @return
+         */
+        public ListBoxModel doFillNamespaceItems(@QueryParameter String f2cAccessKey,
+                                                 @QueryParameter String f2cSecretKey,
+                                                 @QueryParameter String f2cEndpoint,
+                                                 @QueryParameter String projectName,
+                                                 @QueryParameter String cluster) {
+            return ExtensionUtils.doFillNamespaceItems(f2cAccessKey, f2cSecretKey, f2cEndpoint, projectName, cluster);
+        }
+
+    }
 
     public String getF2cEndpoint() {
         return f2cEndpoint;
@@ -961,6 +464,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     public String getApplicationRepositoryId() {
         return applicationRepositoryId;
     }
+
     public String getApplicationId() {
         return applicationId;
     }
@@ -981,10 +485,13 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         return autoDeploy;
     }
 
+    public boolean isAutoPaaSDeploy() {
+        return autoPaaSDeploy;
+    }
+
     public boolean isArtifactoryChecked() {
         return artifactoryChecked;
     }
-
 
     public String getClusterId() {
         return clusterId;
@@ -994,16 +501,13 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         return clusterRoleId;
     }
 
-
     public String getWorkspaceId() {
         return workspaceId;
     }
 
-
     public String getCloudServerId() {
         return cloudServerId;
     }
-
 
     public String getDeployPolicy() {
         return deployPolicy;
@@ -1041,13 +545,14 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         return pollingFreqSec;
     }
 
-    private void log(String msg) {
+    public void log(String msg) {
         logger.println(LOG_PREFIX + msg);
     }
 
     public String getRepositorySettingId() {
         return repositorySettingId;
     }
+
     public String getApplicationSettingId() {
         return applicationSettingId;
     }
@@ -1067,6 +572,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     public String getPath() {
         return path;
     }
+
     public String getNexusGroupId() {
         return nexusGroupId;
     }
@@ -1087,5 +593,75 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         return backupQuantity;
     }
 
+    public static String getLogPrefix() {
+        return LOG_PREFIX;
+    }
 
+    public String getImageNameWithTag() {
+        return imageNameWithTag;
+    }
+
+    public String getCluster() {
+        return cluster;
+    }
+
+    public String getNamespace() {
+        return namespace;
+    }
+
+    public String getAppName() {
+        return appName;
+    }
+
+    public String getContainerName() {
+        return containerName;
+    }
+
+    public String getReplicas() {
+        return replicas;
+    }
+
+    public String getLimitCpu() {
+        return limitCpu;
+    }
+
+    public String getLimitMemory() {
+        return limitMemory;
+    }
+
+    public String getStrategy() {
+        return strategy;
+    }
+
+    public String getResourceKind() {
+        return resourceKind;
+    }
+
+    public String getImagePath() {
+        return imagePath;
+    }
+
+    public String getProjectName() {
+        return projectName;
+    }
+
+    public String getApplicationType() {
+        return applicationType;
+    }
+
+    public boolean isApplicationCommon() {
+        return applicationCommon;
+    }
+
+    public boolean isApplicationContainer() {
+        return applicationContainer;
+    }
+
+    public boolean isHarborChecked() {
+        return harborChecked;
+    }
+
+    public String getPaasApplicationVersionName() {
+        return paasApplicationVersionName;
+    }
 }

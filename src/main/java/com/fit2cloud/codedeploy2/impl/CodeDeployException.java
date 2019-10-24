@@ -1,4 +1,4 @@
-package com.fit2cloud.codedeploy2;
+package com.fit2cloud.codedeploy2.impl;
 
 /**
  * Created by linjinbo on 2017/10/22.

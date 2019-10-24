@@ -22,7 +22,6 @@ import java.util.*;
 
 public class Fit2cloudClient {
 
-
     private static final String ACCEPT = "application/json;charset=UTF-8";
     private static final Integer CONNECT_TIME_OUT = 10000;
     private static final Integer CONNECT_REQUEST_TIME_OUT = 10000;
@@ -50,7 +49,6 @@ public class Fit2cloudClient {
         }
     }
 
-
     public List<Workspace> getWorkspace() {
         Result getUserResult = call(ApiUrlConstants.USER_INFO, RequestMethod.GET);
         User user = JSON.parseObject(getUserResult.getData(), User.class);
@@ -67,7 +65,6 @@ public class Fit2cloudClient {
         }
         return workspaces;
     }
-
 
     public List<ApplicationRepository> getApplicationRepositorys(String workspaceId) {
         long currentPage = 1L;
@@ -93,7 +90,6 @@ public class Fit2cloudClient {
         return JSON.parseArray(result.getData(), TagValue.class);
     }
 
-
     public List<ApplicationDTO> getApplications(String workspaceId) {
         long currentPage = 1L;
         long pageSize = 100L;
@@ -101,7 +97,6 @@ public class Fit2cloudClient {
         List<ApplicationDTO> applications = new ArrayList<ApplicationDTO>();
         Map<String, String> headers = new HashMap<String, String>();
         headers.put("sourceId", workspaceId);
-
 
         do {
             Result result = call(ApiUrlConstants.APPLICATION_LIST + "/" + currentPage + "/" + pageSize, RequestMethod.POST, new HashMap<String, Object>(), headers);
@@ -114,7 +109,6 @@ public class Fit2cloudClient {
         } while (pageCount > currentPage);
         return applications;
     }
-
 
     public List<ClusterDTO> getClusters(String workspaceId) {
         long currentPage = 1L;
@@ -135,7 +129,6 @@ public class Fit2cloudClient {
         return clusters;
     }
 
-
     public List<ApplicationSetting> getApplicationSettings(String applicationId) {
         List<ApplicationSetting> applicationSettings = new ArrayList<>();
         Result result = call(ApiUrlConstants.APPLICATION_SETTING_LIST + "?appId=" + applicationId, RequestMethod.GET);
@@ -144,7 +137,6 @@ public class Fit2cloudClient {
         }
         return applicationSettings;
     }
-
 
     public List<ClusterRole> getClusterRoles(String workspaceId, String clusterId) {
         long currentPage = 1L;
@@ -202,14 +194,63 @@ public class Fit2cloudClient {
         return JSON.parseObject(result.getData(), ApplicationDeployment.class);
     }
 
-
+    /**
+     * 注册版本使用的接口是一致的
+     *
+     * @param applicationVersion
+     * @param workspaceId
+     * @return
+     */
     public ApplicationVersion createApplicationVersion(ApplicationVersionDTO applicationVersion, String workspaceId) {
-        Map<String, String> headers = new HashMap<String, String>();
+        Map<String, String> headers = new HashMap<>();
         headers.put("sourceId", workspaceId);
         Result result = call(ApiUrlConstants.APPLICATION_VERSION_SAVE, RequestMethod.POST, applicationVersion, headers);
         return JSON.parseObject(result.getData(), ApplicationVersion.class);
     }
 
+    /***
+     * 获取PaaS目标集群
+     * @return
+     */
+    public List<ClusterResponse> getPaaSCluster() {
+        Result result = call(ApiUrlConstants.PAAS_CLUSTER, RequestMethod.GET);
+        return JSON.parseArray(result.getData(), ClusterResponse.class);
+    }
+
+    /***
+     * 获取PaaS命名空间
+     * @return
+     */
+    public List<PaaSNamespace> getPaaSNamespace(String projectName, String cluster) {
+        String url = ApiUrlConstants.PAAS_NAMESPACE.replace("{projectName}", projectName).replace("{clusterName}", cluster);
+        Result result = call(url, RequestMethod.GET);
+        return JSON.parseArray(result.getData(), PaaSNamespace.class);
+    }
+
+    /**
+     * 创建PaaS的部署任务
+     *
+     * @param paaSDeployRequest
+     * @param workspaceId
+     * @return
+     */
+    public ApplicationDeployment createPaaSApplicationDeployment(PaaSDeployRequest paaSDeployRequest, String workspaceId) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("sourceId", workspaceId);
+        Result result = call(ApiUrlConstants.PAAS_APPLICATION_DEPLOY_SAVE, RequestMethod.POST, paaSDeployRequest, headers);
+        return JSON.parseObject(result.getData(), ApplicationDeployment.class);
+    }
+
+    /**
+     * 获得PaaS任务部署情况
+     *
+     * @param applicationDeploymentId
+     * @return
+     */
+    public ApplicationDeployment getPaaSApplicationDeployment(String applicationDeploymentId) {
+        Result result = call(ApiUrlConstants.PAAS_APPLICATION_SETTING_GET + "?applicationDeploymentId=" + applicationDeploymentId, RequestMethod.GET);
+        return JSON.parseObject(result.getData(), ApplicationDeployment.class);
+    }
 
     private Result call(String url, RequestMethod requestMethod) {
         return call(url, requestMethod, null, null);
@@ -265,7 +306,6 @@ public class Fit2cloudClient {
         httpRequestBase.addHeader("signature", signature);
     }
 
-
     private static String aesEncrypt(String src, String secretKey, String iv) throws Exception {
         byte[] raw = secretKey.getBytes("UTF-8");
         SecretKeySpec secretKeySpec = new SecretKeySpec(raw, "AES");
@@ -276,6 +316,7 @@ public class Fit2cloudClient {
         return Base64.encodeBase64String(encrypted);
 
     }
+
 }
 
 class ApiUrlConstants {
@@ -292,6 +333,14 @@ class ApiUrlConstants {
     public static final String APPLICATION_VERSION_SAVE = "devops/application/version/save";
     public static final String APPLICATION_DEPLOY_SAVE = "devops/application/deploy/save";
     public static final String APPLICATION_ENV_LIST = "devops/application/setting/env/list";
+    /**
+     * paas 相关api
+     */
+    public static final String PAAS_NAMESPACE = "devops/application/paas/deploy/namespaces/{clusterName}/{projectName}";
+    public static final String PAAS_CLUSTER = "devops/application/paas/deploy/clusters";
+    public static final String PAAS_APPLICATION_DEPLOY_SAVE = "devops/application/paas/deploy/save";
+    public static final String PAAS_APPLICATION_SETTING_GET = "devops/application/paas/deploy/get";
+
 }
 
 enum RequestMethod {
