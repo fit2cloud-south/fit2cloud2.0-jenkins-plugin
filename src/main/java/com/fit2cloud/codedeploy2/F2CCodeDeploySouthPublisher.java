@@ -173,6 +173,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         String clusterId = null;
         String cloudServerId =null;
         String clusterRoleId = null;
+        String tmpApplicationVersionName = null;
         final boolean buildFailed = build.getResult() == Result.FAILURE;
         if (buildFailed) {
             log("Skipping CodeDeploy publisher as build failed");
@@ -183,6 +184,14 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
 
         log("开始校验参数...");
         try {
+            String[] buildVersionSplit = this.applicationVersionName.split("-");
+            String buildN = buildVersionSplit[1];
+            if(org.apache.commons.lang3.StringUtils.isNotBlank(buildN)){
+                if(buildN.contains("BUILD_NUMBER")){
+                    tmpApplicationVersionName = buildVersionSplit[0]+"-" + builtNumber;
+                }
+            }
+            tmpApplicationVersionName = StringUtils.isNotBlank(tmpApplicationVersionName)?tmpApplicationVersionName:this.applicationVersionName;
             boolean findWorkspace = false;
             List<Workspace> workspaces = fit2cloudClient.getWorkspace();
             String tmpWorkspaceId = this.workspaceId;
@@ -305,7 +314,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
             }
         } catch (Exception e) {
             log("存在参数为空或获取工作空间|集群|应用异常："+e.getMessage());
-            log("...applicationId="+applicationId+";applicationVersionName="+applicationVersionName+";cloudServerId="+
+            log("...applicationId="+applicationId+";applicationVersionName="+tmpApplicationVersionName+";cloudServerId="+
                     cloudServerId+";clusterId="+clusterId+";clusterRoleId="+clusterRoleId+";deployPolicy="+deployPolicy+";f2cAccessKey:="+
                     f2cAccessKey+";f2cEndpoint="+f2cEndpoint+"; f2cSecretKey="+ f2cSecretKey+";path="+path+";repositorySettingId="+repositorySettingId);
             return false;
@@ -394,6 +403,8 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
             String includesNew = Utils.replaceTokens(build, listener, this.includes);
             String excludesNew = Utils.replaceTokens(build, listener, this.excludes);
             String appspecFilePathNew = Utils.replaceTokens(build, listener, this.appspecFilePath);
+            //update by and 版本为空就默认（任务民+jenkins构建号） 否则是指定的版本
+            zipFileName = StringUtils.isNotBlank(tmpApplicationVersionName) ? tmpApplicationVersionName+".zip" : zipFileName;
 
             zipFile = zipFile(zipFileName, workspace, includesNew, excludesNew, appspecFilePathNew);
 
@@ -542,7 +553,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         ApplicationVersion appVersion = null;
         try {
             log("注册应用版本中...");
-            String newAppVersion = Utils.replaceTokens(build, listener, this.applicationVersionName);
+            String newAppVersion = Utils.replaceTokens(build, listener, tmpApplicationVersionName);
             ApplicationVersionDTO applicationVersion = new ApplicationVersionDTO();
             applicationVersion.setApplicationId(applicationId);
             applicationVersion.setName(newAppVersion);
@@ -626,8 +637,6 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         } else {
             throw new IllegalArgumentException("没有找到对应的appspec.yml文件！");
         }
-        //update by and 版本为空就默认（任务民+jenkins构建号） 否则是指定的版本
-        zipFileName = StringUtils.isNotBlank(this.applicationVersionName) ? this.applicationVersionName+".zip" : zipFileName;
         File zipFile = new File("/tmp/" + zipFileName);
         final boolean fileCreated = zipFile.createNewFile();
         if (!fileCreated) {
@@ -1089,6 +1098,5 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
     public Integer getBackupQuantity() {
         return backupQuantity;
     }
-
 
 }
