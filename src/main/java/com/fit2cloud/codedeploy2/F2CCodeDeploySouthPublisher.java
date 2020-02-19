@@ -71,6 +71,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
 
 
     private final String path;
+    private final String appAddress;/**指定应用文件路径*/
     //上传到阿里云参数
     private final String objectPrefixAliyun;
     //上传到亚马逊参数
@@ -111,6 +112,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                                        String objectPrefixAliyun,
                                        String objectPrefixAWS,
                                        String path,
+                                       String appAddress,
                                        String nexusGroupId,
                                        String nexusArtifactId,
                                        String nexusArtifactVersion) {
@@ -139,6 +141,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         this.objectPrefixAliyun = objectPrefixAliyun;
         this.objectPrefixAWS = objectPrefixAWS;
         this.path = path;
+        this.appAddress = appAddress;
         this.nexusGroupId = nexusGroupId;
         this.nexusArtifactId = nexusArtifactId;
         this.nexusArtifactVersion = nexusArtifactVersion;
@@ -452,17 +455,25 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                     break;
                 case ArtifactType.ARTIFACTORY:
                     log("开始上传zip文件到Artifactory服务器");
-                    if (StringUtils.isBlank(path)) {
-                        log("请输入上传至 Artifactory 的 Path");
+                    //update by and
+                    if (StringUtils.isBlank(path) && StringUtils.isBlank(appAddress)) {
+                        log("请输入上传至 Artifactory 的 Path 或指定应用文件地址");
                         return false;
                     }
-                    String pathNew = Utils.replaceTokens(build, listener, path);
+                    String fpath = StringUtils.isNotBlank(path) ? path : appAddress;
+                    String pathNew = Utils.replaceTokens(build, listener, fpath);
                     try {
 
                         String r = applicationRepository.getRepository();
                         String server = r.substring(0, r.indexOf("/artifactory"));
-                        newAddress = ArtifactoryUploader.uploadArtifactory(zipFile, server.trim(),
-                                applicationRepository.getAccessId(), applicationRepository.getAccessPassword(), r, pathNew);
+                        if(StringUtils.isNotBlank(path)){
+                            newAddress = ArtifactoryUploader.uploadArtifactory(zipFile, server.trim(),
+                                    applicationRepository.getAccessId(), applicationRepository.getAccessPassword(), r, pathNew);
+                        }else{
+                            newAddress = ArtifactoryUploader.uploadAppFile(zipFile, server.trim(),
+                                    applicationRepository.getAccessId(), applicationRepository.getAccessPassword(), r, pathNew);
+                        }
+
                     } catch (Exception e) {
                         log("上传文件到 Artifactory 服务器失败！错误消息如下:");
                         log(e.getMessage());
@@ -1078,6 +1089,9 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
 
     public String getPath() {
         return path;
+    }
+    public String getAppAddress() {
+        return appAddress;
     }
     public String getNexusGroupId() {
         return nexusGroupId;
