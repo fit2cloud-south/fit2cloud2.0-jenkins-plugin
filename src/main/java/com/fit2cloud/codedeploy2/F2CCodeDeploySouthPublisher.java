@@ -465,8 +465,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
                             newAddress = ArtifactoryUploader.uploadArtifactory(zipFile, server.trim(),
                                     applicationRepository.getAccessId(), applicationRepository.getAccessPassword(), r, pathNew);
                         }else{
-                            newAddress = ArtifactoryUploader.uploadAppFile(zipFile, server.trim(),
-                                    applicationRepository.getAccessId(), applicationRepository.getAccessPassword(), r, pathNew);
+                            newAddress = pathNew;
                         }
 
                     } catch (Exception e) {
