@@ -184,13 +184,15 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
 
         log("开始校验参数...");
         try {
-            String[] buildVersionSplit = this.applicationVersionName.split("-");
+            /*String[] buildVersionSplit = this.applicationVersionName.split("-");
             String buildN = buildVersionSplit[1];
             if(org.apache.commons.lang3.StringUtils.isNotBlank(buildN)){
                 if(buildN.contains("BUILD_NUMBER")){
                     tmpApplicationVersionName = buildVersionSplit[0]+"-" + builtNumber;
                 }
             }
+            tmpApplicationVersionName = Utils.getReplaceVariableString(this.applicationVersionName,builtNumber);*/
+            tmpApplicationVersionName = Utils.replaceTokens(build, listener, this.applicationVersionName);
             tmpApplicationVersionName = StringUtils.isNotBlank(tmpApplicationVersionName)?tmpApplicationVersionName:this.applicationVersionName;
             boolean findWorkspace = false;
             List<Workspace> workspaces = fit2cloudClient.getWorkspace();
