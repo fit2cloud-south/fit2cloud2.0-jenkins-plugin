@@ -905,7 +905,7 @@ public class F2CCodeDeploySouthPublisher extends Publisher implements SimpleBuil
         public ListBoxModel doFillDeploymentLevelItems() {
             ListBoxModel items = new ListBoxModel();
             items.add("全量部署", "all");
-            items.add("增量部署", "");
+            items.add("增量部署", "increment");
             return items;
         }
 
